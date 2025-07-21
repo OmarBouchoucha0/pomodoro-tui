@@ -1,1 +1,1 @@
-# pomodor-tui
+# pomodoro-tui
