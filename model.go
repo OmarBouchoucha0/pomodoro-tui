@@ -1,16 +1,21 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 type model struct {
-	workTime     int
-	isWorking    bool
-	workTimeLeft int
+	workTime      int
+	isWorking     bool
+	workTimeLeft  int
+	breakTime     int
+	isOnBreak     bool
+	breakTimeLeft int
 }
+
 type tickMsg time.Time
 
 func tick() tea.Cmd {
@@ -19,16 +24,28 @@ func tick() tea.Cmd {
 	})
 }
 
-func InitialModel() model {
-	timeTotal := 1 * 60
-	return model{workTime: timeTotal, isWorking: false, workTimeLeft: timeTotal}
+func formatTime(time int) string {
+	minutes := time / 60
+	seconds := time % 60
+	timeStr := fmt.Sprintf("%02d:%02d", minutes, seconds)
+	return fmt.Sprintf("⏰ Time: %s\n\n", timeStr)
+}
+
+func initialModel() model {
+	workTotal := 1 * 6
+	breakTotal := 1 * 3
+	return model{
+		workTime:      workTotal,
+		isWorking:     false,
+		workTimeLeft:  workTotal,
+		breakTime:     breakTotal,
+		isOnBreak:     false,
+		breakTimeLeft: breakTotal,
+	}
 }
 
 func (m model) Init() tea.Cmd {
-	if m.isWorking {
-		return tick()
-	}
-	return nil
+	return tea.SetWindowTitle("Pomodoro")
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -37,21 +54,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.isWorking {
 			if m.workTimeLeft > 0 {
 				m.workTimeLeft--
+				return m, tick() // Continue ticking
+			}
+			// Timer finished
+			m.isWorking = false
+			m.isOnBreak = true
+			fmt.printf("breaking")
+			return m, nil
+		}
+		if m.isOnBreak {
+			if m.breakTimeLeft > 0 {
+				m.breakTimeLeft--
 				return m, tick()
 			}
-			m.isWorking = false
+			m.isOnBreak = false
 			return m, nil
 		}
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
-		case "space":
+		case " ":
 			if m.isWorking {
-				m.isWorking = false
+				m.isWorking = false // Pause
 			} else {
-				m.isWorking = true
+				m.isWorking = true // Start/Resume
+				return m, tick()   // Start the ticker
 			}
+		case "r":
+			// Reset timer
+			m.workTimeLeft = m.workTime
+			m.isWorking = false
+			m.breakTimeLeft = m.breakTime
+			m.isOnBreak = false
 		}
 	}
 	return m, nil
@@ -59,10 +94,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	var s string
-	s += "Press Space to Start."
 	if m.isWorking {
-		s += "\n⏳Working\n"
+		s = formatTime(m.workTimeLeft)
+		s += "Working... (Press space to pause)\n"
+	} else {
+		if m.workTimeLeft == 0 {
+			s = "✅ Work session complete!\n"
+		} else {
+			s = "⏸️  Paused (Press space to start)\n"
+		}
 	}
-	s += "\nPress q to quit.\n"
+	if m.isOnBreak {
+		s = formatTime(m.breakTimeLeft)
+		s += "✅ Work session complete!\n"
+		s += "Go Get Some Rest\n"
+	}
+
+	s += "\nControls:\n"
+	s += "• Space: Start/Pause\n"
+	s += "• r: Reset timer\n"
+	s += "• q: Quit\n"
+
 	return s
 }
