@@ -14,8 +14,9 @@ type model struct {
 	breakTime     int
 	isOnBreak     bool
 	breakTimeLeft int
+	cycles        int
+	cyclesLeft    int
 }
-
 type tickMsg time.Time
 
 func tick() tea.Cmd {
@@ -27,13 +28,13 @@ func tick() tea.Cmd {
 func formatTime(time int) string {
 	minutes := time / 60
 	seconds := time % 60
-	timeStr := fmt.Sprintf("%02d:%02d", minutes, seconds)
-	return fmt.Sprintf("⏰ Time: %s\n\n", timeStr)
+	return fmt.Sprintf("%02d:%02d", minutes, seconds)
 }
 
 func initialModel() model {
 	workTotal := 1 * 6
 	breakTotal := 1 * 3
+	cycles := 3
 	return model{
 		workTime:      workTotal,
 		isWorking:     false,
@@ -41,6 +42,8 @@ func initialModel() model {
 		breakTime:     breakTotal,
 		isOnBreak:     false,
 		breakTimeLeft: breakTotal,
+		cycles:        cycles,
+		cyclesLeft:    cycles,
 	}
 }
 
@@ -56,19 +59,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.workTimeLeft--
 				return m, tick() // Continue ticking
 			}
-			// Timer finished
+			// Work timer finished - switch to break
 			m.isWorking = false
 			m.isOnBreak = true
-			fmt.printf("breaking")
-			return m, nil
+			return m, tick() // Start break timer immediately
 		}
 		if m.isOnBreak {
 			if m.breakTimeLeft > 0 {
 				m.breakTimeLeft--
 				return m, tick()
 			}
+			// Break finished - reset for next cycle
 			m.isOnBreak = false
-			return m, nil
+			m.workTimeLeft = m.workTime
+			m.breakTimeLeft = m.breakTime
+			m.cyclesLeft--
+			if m.cyclesLeft > 0 {
+				m.isWorking = true
+			} else {
+				m.isWorking = false
+			}
+			return m, tick()
 		}
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -76,10 +87,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case " ":
 			if m.isWorking {
-				m.isWorking = false // Pause
+				m.isWorking = false // Pause work
+			} else if m.isOnBreak {
+				m.isOnBreak = false // Pause break
 			} else {
-				m.isWorking = true // Start/Resume
-				return m, tick()   // Start the ticker
+				// Start work (from paused or initial state)
+				m.isWorking = true
+				return m, tick()
 			}
 		case "r":
 			// Reset timer
@@ -87,6 +101,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.isWorking = false
 			m.breakTimeLeft = m.breakTime
 			m.isOnBreak = false
+			m.cyclesLeft = m.cycles
 		}
 	}
 	return m, nil
@@ -94,20 +109,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	var s string
+
 	if m.isWorking {
-		s = formatTime(m.workTimeLeft)
+		// Working state
+		s += fmt.Sprintf("Work Time: %s\n\n", formatTime(m.workTimeLeft))
 		s += "Working... (Press space to pause)\n"
+	} else if m.isOnBreak {
+		// Break state
+		s += fmt.Sprintf("☕ Break Time: %s\n\n", formatTime(m.breakTimeLeft))
+		s += "Break - Go Get Some Rest! (Press space to pause)\n"
 	} else {
-		if m.workTimeLeft == 0 {
-			s = "✅ Work session complete!\n"
+		// Paused or initial state
+		if m.workTimeLeft == 0 && m.breakTimeLeft == m.breakTime {
+			// Just finished a full cycle
+			s += "🎉 Cycle Complete! Ready for next work session.\n"
+			s += fmt.Sprintf("⏰ Work Time: %s\n\n", formatTime(m.workTime))
+		} else if m.workTimeLeft < m.workTime {
+			// Paused during work
+			s += fmt.Sprintf("⏰ Work Time: %s\n\n", formatTime(m.workTimeLeft))
+			s += "⏸️ Work Paused (Press space to resume)\n"
+		} else if m.breakTimeLeft < m.breakTime {
+			// Paused during break
+			s += fmt.Sprintf("⏰ Break Time: %s\n\n", formatTime(m.breakTimeLeft))
+			s += "⏸️ Break Paused (Press space to resume)\n"
 		} else {
-			s = "⏸️  Paused (Press space to start)\n"
+			// Initial state
+			s += fmt.Sprintf("⏰ Work Time: %s\n\n", formatTime(m.workTimeLeft))
+			s += "Press SpaceBar to Start Your Pomodoro!\n"
 		}
-	}
-	if m.isOnBreak {
-		s = formatTime(m.breakTimeLeft)
-		s += "✅ Work session complete!\n"
-		s += "Go Get Some Rest\n"
 	}
 
 	s += "\nControls:\n"
